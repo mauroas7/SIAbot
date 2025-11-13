@@ -1,3 +1,5 @@
+# Contenido de requirements.txt (ACTUALIZADO)
 flask
 requests
 gunicorn
+google-genai
