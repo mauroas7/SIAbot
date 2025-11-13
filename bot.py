@@ -35,6 +35,12 @@ app = Flask(__name__)
 def generate_ai_response(prompt_text):
     """Genera una respuesta usando el modelo Gemini."""
     try:
+        # Volvemos a intentar inicializar el cliente si no se pudo antes
+        # Esto solo es una medida de seguridad si la inicialización global falló
+        global client 
+        if 'client' not in globals():
+             client = genai.Client(api_key=GEMINI_API_KEY)
+        
         config = genai.types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION
         )
@@ -48,9 +54,11 @@ def generate_ai_response(prompt_text):
         return response.text
     except APIError as e:
         print(f"Error de API de Gemini: {e}")
-        return "Disculpa, tengo un problema de conexión con el modelo de IA. Inténtalo de nuevo."
+        # En caso de error, el bot le avisa al usuario
+        return "Disculpa, tengo un problema de conexión con el modelo de IA. Verifica mi clave de API. Inténtalo de nuevo."
     except Exception as e:
-        print(f"Error inesperado: {e}")
+        print(f"Error inesperado en IA: {e}")
+        # En caso de error, el bot le avisa al usuario
         return "Ocurrió un error inesperado al procesar tu solicitud."
 
 def send_reply(chat_id, text):
@@ -112,3 +120,4 @@ def receive_update():
 if __name__ == '__main__':
     PORT = int(os.environ.get("PORT", 8080)) 
     app.run(host='0.0.0.0', port=PORT)
+
