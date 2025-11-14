@@ -2,96 +2,99 @@ import os
 import requests
 import threading
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+import google.generativeai as genai 
+# NOTA: Eliminamos la importación de 'errors' que fallaba.
 
 # --- CONFIGURACIÓN DE ACCESO ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 
-# LÓGICA RAG: Lee los IDs de archivo (p. ej., 'files/abc,files/def')
-# obtenidos al subir tus PDFs y los guarda en una lista.
+# LÓGICA RAG: Lee los IDs de archivo
 GEMINI_FILE_NAMES = os.environ.get("GEMINI_FILE_NAMES", "").split(',')
 GEMINI_FILE_NAMES = [name.strip() for name in GEMINI_FILE_NAMES if name.strip()]
 
-# El bot NO puede funcionar sin el token de Telegram. Si falta, detenemos el deploy.
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN no está configurado.")
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
-# Inicialización perezosa del cliente
-client = None
-# -------------------------------
-
-# --- PROMPT ENGINEERING: DEFINICIÓN DEL ROL ---
+# --- PROMPT ENGINEERING ---
 SYSTEM_INSTRUCTION = (
-    "Eres un Asistente de Estudio experto en Sistemas Inteligentes, Bot conversacionales, "
-    "APIs y Webhooks. Tu objetivo es educar. Responde a las preguntas del estudiante "
-    "de manera clara, concisa, profesional y usando la terminología técnica adecuada "
-    "de la materia. **Debes basar tu respuesta estrictamente en los archivos de contexto "
-    "proporcionados. Si la información no está en los archivos, respóndelo de manera cortés "
-    "y sin inventar contenido. Mantén tus respuestas en español.**"
+    "Eres un Asistente de Estudio experto en Sistemas Inteligentes. "
+    "Debes basar tu respuesta estrictamente en los archivos de contexto (PDFs) "
+    "proporcionados. Si la información no está en los archivos, responde cortésmente "
+    "que no puedes encontrar esa información en el material de estudio."
 )
-# -----------------------------------------------
+
+# --- INICIALIZACIÓN DEL MODELO ---
+model = None
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        # Inicializamos el modelo que usaremos para chatear
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash-latest', # Usamos un modelo moderno
+            system_instruction=SYSTEM_INSTRUCTION
+        )
+        print("Modelo Gemini 1.5 Flash inicializado exitosamente.")
+        if GEMINI_FILE_NAMES:
+            print(f"Archivos RAG detectados: {GEMINI_FILE_NAMES}")
+        else:
+            print("Advertencia: No se encontraron GEMINI_FILE_NAMES. Operando sin RAG.")
+            
+    except Exception as e:
+        print(f"FALLO DE INICIALIZACIÓN DE GEMINI (al inicio): {e}")
+else:
+    print("Advertencia: GEMINI_API_KEY no encontrada. El bot no podrá responder.")
+# ---------------------------------
 
 app = Flask(__name__)
 
-def get_gemini_client():
-    """Inicializa el cliente de Gemini de forma segura si no está inicializado."""
-    global client
-    if client is None and GEMINI_API_KEY:
-        try:
-            # Usamos genai.Client() para poder interactuar con la API de Files
-            client = genai.Client(api_key=GEMINI_API_KEY)
-            print("Cliente Gemini inicializado exitosamente.")
-        except Exception as e:
-            print(f"FALLO DE INICIALIZACIÓN DE GEMINI: {e}")
-            return None
-    return client
-
 def generate_ai_response(prompt_text):
     """Genera una respuesta usando el modelo Gemini, con RAG si hay archivos."""
-    ai_client = get_gemini_client()
     
-    if not ai_client:
-        return "Disculpa, no puedo acceder al modelo de IA. Verifica la configuración de la clave de Gemini (GEMINI_API_KEY)."
+    if not model:
+        return "Disculpa, el modelo de IA no está disponible. Revisa la configuración (GEMINI_API_KEY)."
 
     try:
-        contents_for_gemini = [prompt_text] # Por defecto, solo la pregunta
+        contents_for_gemini = [] # Lista de contenidos para la IA
 
-        # LÓGICA RAG: Si hay IDs de archivo, los inyectamos en la solicitud.
+        # LÓGICA RAG: Si hay IDs de archivo, los preparamos.
         if GEMINI_FILE_NAMES:
             print(f"Usando archivos RAG: {GEMINI_FILE_NAMES}")
             
-            # 1. Obtiene las referencias (handles) de los archivos subidos.
-            # Esta llamada busca los archivos por su ID ('files/...') en la API.
-            file_handles = [ai_client.files.get(name=name) for name in GEMINI_FILE_NAMES]
-            
-            # 2. El contenido enviado será: Archivos (contexto) + Pregunta
-            contents_for_gemini = file_handles + [prompt_text]
+            # Obtenemos los 'handles' de los archivos usando la API a nivel de módulo
+            for name in GEMINI_FILE_NAMES:
+                # genai.get_file() es la forma moderna de obtener el archivo
+                file_handle = genai.get_file(name=name) 
+                contents_for_gemini.append(file_handle)
         else:
-            print("Operando solo con conocimiento general de Gemini (sin RAG).")
+            print("Operando solo con conocimiento general (sin RAG).")
 
-        config = genai.types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.1 # Baja temperatura para fomentar respuestas fácticas (RAG)
-        )
+        # Añadimos la pregunta del usuario al final del contexto
+        contents_for_gemini.append(prompt_text)
         
-        # Llamada al modelo con los contenidos (archivos + pregunta)
-        response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
+        # Generamos la respuesta
+        # NO usamos genai.Client, usamos el 'model' que ya creamos.
+        response = model.generate_content(
             contents=contents_for_gemini,
-            config=config
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1 # Baja temperatura para RAG
+            )
         )
         
-        # El modelo genera citas automáticas cuando usa los archivos.
         return response.text
+    
     except Exception as e:
-        print(f"Error de API de Gemini: {e}")
-        return "Disculpa, la API de Gemini rechazó la solicitud. Revisa la validez de tu clave o el formato de GEMINI_FILE_NAMES."
-    except Exception as e:
-        print(f"Error inesperado en IA: {e}")
-        return "Ocurrió un error inesperado al procesar tu solicitud."
+        # Este es un error genérico de la API (p.ej. clave inválida, archivo no encontrado)
+        print(f"Error al generar contenido de Gemini: {e}")
+        # Damos un error más específico si podemos
+        if "API key" in str(e):
+            return "Error de API: La clave de Gemini es inválida o está mal configurada."
+        if "not found" in str(e).lower() and "files/" in str(e):
+             return f"Error de RAG: No se pudo encontrar uno de los archivos. Revisa los IDs en GEMINI_FILE_NAMES."
+        
+        return "Ocurrió un error inesperado al contactar a la IA."
 
 def send_reply(chat_id, text):
     """Envía un mensaje al chat_id especificado."""
@@ -124,17 +127,14 @@ def receive_update():
         if chat_id and message_text:
             print(f"Pregunta recibida: {message_text}")
             
-            # Inicia un hilo separado para la tarea lenta de la IA
             ai_thread = threading.Thread(
                 target=background_ai_task, 
                 args=(chat_id, message_text)
             )
             ai_thread.start()
             
-            # Devolver 200 OK INMEDIATAMENTE: La clave de la asincronía.
             return jsonify(success=True, status="Processing in background"), 200
         
-        print("Mensaje no procesable (sticker, etc.)")
         return jsonify(success=True), 200 
             
     except Exception as e:
