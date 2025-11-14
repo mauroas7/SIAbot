@@ -3,7 +3,7 @@ import requests
 import threading
 from flask import Flask, request, jsonify
 import google.generativeai as genai 
-# NOTA: Eliminamos la importación de 'errors' que fallaba.
+# NOTA: NO importamos 'errors' ni usamos 'genai.Client'
 
 # --- CONFIGURACIÓN DE ACCESO ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -31,9 +31,9 @@ model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Inicializamos el modelo que usaremos para chatear
+        # ESTA ES LA FORMA MODERNA: Inicializamos el modelo, no un 'cliente'
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash-latest', # Usamos un modelo moderno
+            model_name='gemini-1.5-flash-latest', 
             system_instruction=SYSTEM_INSTRUCTION
         )
         print("Modelo Gemini 1.5 Flash inicializado exitosamente.")
@@ -54,6 +54,7 @@ def generate_ai_response(prompt_text):
     """Genera una respuesta usando el modelo Gemini, con RAG si hay archivos."""
     
     if not model:
+        # Este es el error que probablemente estás viendo en Telegram
         return "Disculpa, el modelo de IA no está disponible. Revisa la configuración (GEMINI_API_KEY)."
 
     try:
@@ -63,9 +64,8 @@ def generate_ai_response(prompt_text):
         if GEMINI_FILE_NAMES:
             print(f"Usando archivos RAG: {GEMINI_FILE_NAMES}")
             
-            # Obtenemos los 'handles' de los archivos usando la API a nivel de módulo
+            # ESTA ES LA FORMA MODERNA de obtener archivos
             for name in GEMINI_FILE_NAMES:
-                # genai.get_file() es la forma moderna de obtener el archivo
                 file_handle = genai.get_file(name=name) 
                 contents_for_gemini.append(file_handle)
         else:
@@ -74,26 +74,24 @@ def generate_ai_response(prompt_text):
         # Añadimos la pregunta del usuario al final del contexto
         contents_for_gemini.append(prompt_text)
         
-        # Generamos la respuesta
-        # NO usamos genai.Client, usamos el 'model' que ya creamos.
+        # Generamos la respuesta usando el 'model'
         response = model.generate_content(
             contents=contents_for_gemini,
             generation_config=genai.types.GenerationConfig(
-                temperature=0.1 # Baja temperatura para RAG
+                temperature=0.1 
             )
         )
         
         return response.text
     
     except Exception as e:
-        # Este es un error genérico de la API (p.ej. clave inválida, archivo no encontrado)
         print(f"Error al generar contenido de Gemini: {e}")
-        # Damos un error más específico si podemos
         if "API key" in str(e):
             return "Error de API: La clave de Gemini es inválida o está mal configurada."
         if "not found" in str(e).lower() and "files/" in str(e):
              return f"Error de RAG: No se pudo encontrar uno de los archivos. Revisa los IDs en GEMINI_FILE_NAMES."
         
+        # Este es el error que reportaste ver
         return "Ocurrió un error inesperado al contactar a la IA."
 
 def send_reply(chat_id, text):
