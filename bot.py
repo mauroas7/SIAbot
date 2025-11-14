@@ -85,13 +85,14 @@ def generate_ai_response(prompt_text):
         return response.text
     
     except Exception as e:
-        print(f"Error al generar contenido de Gemini: {e}")
+        # AÑADIR ESTA LÍNEA CRÍTICA para ver la excepción real en los logs de Render
+        print(f"EXCEPCIÓN NO CONTROLADA DURANTE API CALL: {e}") 
+
         if "API key" in str(e):
             return "Error de API: La clave de Gemini es inválida o está mal configurada."
         if "not found" in str(e).lower() and "files/" in str(e):
              return f"Error de RAG: No se pudo encontrar uno de los archivos. Revisa los IDs en GEMINI_FILE_NAMES."
         
-        # Este es el error que reportaste ver
         return "Ocurrió un error inesperado al contactar a la IA."
 
 def send_reply(chat_id, text):
