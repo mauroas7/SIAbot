@@ -33,7 +33,7 @@ if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
         # ESTA ES LA FORMA MODERNA: Inicializamos el modelo, no un 'cliente'
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name='gemini-2.5-flash',
             system_instruction=SYSTEM_INSTRUCTION
         )
         print("Modelo Gemini 1.5 Flash inicializado exitosamente.")
