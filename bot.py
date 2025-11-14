@@ -18,25 +18,28 @@ if not TOKEN:
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
-# --- PROMPT ENGINEERING ---
+# --- PROMPT ENGINEERING (MODIFICADO) ---
 SYSTEM_INSTRUCTION = (
-    "Eres un Asistente de Estudio experto en Sistemas Inteligentes. "
-    "Debes basar tu respuesta estrictamente en los archivos de contexto (PDFs) "
-    "proporcionados. Si la información no está en los archivos, responde cortésmente "
-    "que no puedes encontrar esa información en el material de estudio."
+    "Eres un Asistente de Estudio experto en Sistemas Inteligentes, Bot conversacionales, "
+    "APIs y Webhooks. Tu objetivo es educar. Responde a las preguntas del estudiante "
+    "de manera clara, concisa, profesional y usando la terminología técnica adecuada "
+    "de la materia. "
+    "**Prioriza el contenido de los archivos de contexto (PDFs) para responder preguntas sobre la materia.** "
+    "Si la información específica no se encuentra en el material de estudio, **utiliza tu conocimiento general para proveer una respuesta completa y útil.** "
+    "Responde siempre en español."
 )
+# ----------------------------------------
 
 # --- INICIALIZACIÓN DEL MODELO ---
 model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # ESTA ES LA FORMA MODERNA: Inicializamos el modelo, no un 'cliente'
         model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash',
+            model_name='gemini-2.5-flash', # Usamos el modelo estable
             system_instruction=SYSTEM_INSTRUCTION
         )
-        print("Modelo Gemini 1.5 Flash inicializado exitosamente.")
+        print("Modelo Gemini 2.5 Flash inicializado exitosamente.")
         if GEMINI_FILE_NAMES:
             print(f"Archivos RAG detectados: {GEMINI_FILE_NAMES}")
         else:
@@ -54,7 +57,6 @@ def generate_ai_response(prompt_text):
     """Genera una respuesta usando el modelo Gemini, con RAG si hay archivos."""
     
     if not model:
-        # Este es el error que probablemente estás viendo en Telegram
         return "Disculpa, el modelo de IA no está disponible. Revisa la configuración (GEMINI_API_KEY)."
 
     try:
@@ -64,8 +66,8 @@ def generate_ai_response(prompt_text):
         if GEMINI_FILE_NAMES:
             print(f"Usando archivos RAG: {GEMINI_FILE_NAMES}")
             
-            # ESTA ES LA FORMA MODERNA de obtener archivos
             for name in GEMINI_FILE_NAMES:
+                # Obtenemos los 'handles' de los archivos
                 file_handle = genai.get_file(name=name) 
                 contents_for_gemini.append(file_handle)
         else:
@@ -74,20 +76,20 @@ def generate_ai_response(prompt_text):
         # Añadimos la pregunta del usuario al final del contexto
         contents_for_gemini.append(prompt_text)
         
-        # Generamos la respuesta usando el 'model'
+        # Generamos la respuesta
         response = model.generate_content(
             contents=contents_for_gemini,
             generation_config=genai.types.GenerationConfig(
-                temperature=0.1 
+                temperature=0.1 # Baja temperatura para RAG (fomenta la exactitud)
             )
         )
         
         return response.text
     
     except Exception as e:
-        # AÑADIR ESTA LÍNEA CRÍTICA para ver la excepción real en los logs de Render
+        # Esto imprimirá cualquier error de la API si lo hay
         print(f"EXCEPCIÓN NO CONTROLADA DURANTE API CALL: {e}") 
-
+        
         if "API key" in str(e):
             return "Error de API: La clave de Gemini es inválida o está mal configurada."
         if "not found" in str(e).lower() and "files/" in str(e):
