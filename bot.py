@@ -3,7 +3,6 @@ import requests
 import threading
 from flask import Flask, request, jsonify
 import google.generativeai as genai
-from google.generativeai.errors import APIError
 
 # --- CONFIGURACIÓN DE ACCESO ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -87,7 +86,7 @@ def generate_ai_response(prompt_text):
         
         # El modelo genera citas automáticas cuando usa los archivos.
         return response.text
-    except APIError as e:
+    except Exception as e:
         print(f"Error de API de Gemini: {e}")
         return "Disculpa, la API de Gemini rechazó la solicitud. Revisa la validez de tu clave o el formato de GEMINI_FILE_NAMES."
     except Exception as e:
