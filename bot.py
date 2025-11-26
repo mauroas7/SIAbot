@@ -65,7 +65,7 @@ def upload_and_configure_gemini():
         for pdf_path in pdf_files:
             try:
                 # 🟢 Subida de archivo usando la función directa, la forma correcta:
-                file_ref = genai.upload_file(file=pdf_path, mime_type="application/pdf")
+                file_ref = genai.upload_file(path=pdf_path, mime_type="application/pdf")
                 uploaded_files.append(file_ref)
                 print(f"   ✅ Carga exitosa: {pdf_path} -> {file_ref.name}")
             except Exception as e:
