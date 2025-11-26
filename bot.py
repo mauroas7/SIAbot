@@ -1,41 +1,41 @@
 import os
+import time
 import glob
 import requests
 import threading
 from flask import Flask, request, jsonify
 import google.generativeai as genai 
 
-# --- CONFIGURACIÓN DE ACCESO ---
+# --- CONFIGURACIÓN DE ACCESO CON LOS TOKENS ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
+
+# El bot buscará los archivos localmente en la carpeta 'documentos'
 
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN no está configurado.")
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
-# --- PROMPT ENGINEERING: DEFINICIÓN DEL ROL ---
+# --- PROMPT ENGINEERING ---
 SYSTEM_INSTRUCTION = (
-    "Eres un Asistente de Estudio experto en Sistemas Inteligentes, Bot conversacionales, "
+    "Actúa como Asistente de Estudio experto en Sistemas Inteligentes, Bot conversacionales, "
     "APIs y Webhooks. Tu objetivo es educar. Responde a las preguntas del estudiante "
     "de manera clara, concisa, profesional y usando la terminología técnica adecuada "
-    "de la materia. "
+    "de la materia, tratando de no sobrepasar el limite de escritura de Telegram. "
     "**Prioriza el contenido de los archivos de contexto (PDFs) para responder preguntas sobre la materia principal.** "
     "Si la información específica no se encuentra en el material de estudio, **utiliza tu conocimiento general para proveer una respuesta completa y útil.** "
-    "Responde siempre en español. **Recuerda el historial de la conversación actual para responder preguntas de seguimiento o información personal que te den.**"
+    "Responde siempre en español."
 )
 
 app = Flask(__name__)
 model = None
-global_file_handles = [] 
-# Diccionario para almacenar las sesiones de chat de cada usuario
-chat_sessions = {} 
-# ------------------------------
+chat_session = None # Usaremos una sesión simple o gestión directa
 
 # --- FUNCIÓN DE AUTO-CARGA DE ARCHIVOS ---
 def upload_and_configure_gemini():
     """Sube los PDFs de la carpeta 'documentos' a Gemini al iniciar."""
-    global model, global_file_handles
+    global model
     
     if not GEMINI_API_KEY:
         print("❌ ERROR: No hay GEMINI_API_KEY.")
@@ -45,64 +45,69 @@ def upload_and_configure_gemini():
         genai.configure(api_key=GEMINI_API_KEY)
         uploaded_files = []
         
+        # Buscamos todos los PDFs en la carpeta 'documentos'
         pdf_files = glob.glob("documentos/*.pdf")
+        
+        if not pdf_files:
+            print("⚠️ ADVERTENCIA: No se encontraron PDFs en la carpeta 'documentos'.")
         
         print(f"📂 Iniciando carga de {len(pdf_files)} documentos...")
         
         for pdf_path in pdf_files:
             print(f"   Subiendo: {pdf_path}...")
-            # Subimos el archivo a la nube (Temporal por 48hs, pero se renueva en cada deploy)
+            # Subimos el archivo a la nube de Google (Temporal por 48hs)
+            # Como el bot se reinicia en Render, esto renueva los archivos siempre.
             file_ref = genai.upload_file(pdf_path, mime_type="application/pdf")
             uploaded_files.append(file_ref)
             
-        print(f"✅ ¡Éxito! {len(uploaded_files)} archivos cargados.")
+        print(f"✅ ¡Éxito! {len(uploaded_files)} archivos cargados y listos para usar.")
 
-        # Configuramos el modelo que usará la instrucción del sistema
+        # Configuramos el modelo con los archivos YA cargados
         model = genai.GenerativeModel(
             model_name='gemini-2.5-flash',
             system_instruction=SYSTEM_INSTRUCTION
         )
         
-        global_file_handles = uploaded_files
+        # Guardamos la lista de archivos en una variable global para usarlos en el chat
+        return uploaded_files
 
     except Exception as e:
-        print(f"❌ FALLO CRÍTICO AL SUBIR ARCHIVOS O CONFIGURAR MODELO: {e}")
+        print(f"❌ FALLO CRÍTICO AL SUBIR ARCHIVOS: {e}")
+        return []
 
 # --- INICIALIZACIÓN GLOBAL ---
+# Ejecutamos la subida UNA VEZ cuando arranca el servidor
 print("--- SISTEMA DE AUTO-CARGA INICIADO ---")
-upload_and_configure_gemini()
+global_file_handles = upload_and_configure_gemini()
 # -----------------------------
 
-
-# --- FUNCIÓN PRINCIPAL DE RESPUESTA CON MEMORIA ---
-def generate_ai_response(chat_id, prompt_text):
-    """Genera respuesta usando el modelo, manteniendo el estado de la conversación."""
-    global model, global_file_handles, chat_sessions
+def generate_ai_response(prompt_text):
+    """Genera respuesta usando los archivos que acabamos de subir."""
+    global model, global_file_handles
     
     if not model:
-        return "El modelo de IA no está configurado."
+        return "El sistema está iniciándose o hubo un error de configuración."
 
     try:
-        # 1. Recuperar o Crear Sesión de Chat
-        if chat_id not in chat_sessions:
-            print(f"💬 Creando nueva sesión de chat para: {chat_id}")
+        # Preparamos el contenido: Archivos + Pregunta
+        contents = []
+        
+        # Añadimos los archivos cargados al contexto
+        if global_file_handles:
+            contents.extend(global_file_handles)
             
-            # Los archivos RAG se pasan al iniciar el chat, para que el modelo los use como contexto.
-            chat_sessions[chat_id] = model.start_chat(
-                history=[], 
-                config={"context": global_file_handles} 
+        contents.append(prompt_text)
+        
+        # Generamos respuesta
+        response = model.generate_content(
+            contents,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1
             )
-
-        chat = chat_sessions[chat_id]
-        
-        # 2. Enviar Mensaje y recibir respuesta
-        # La función send_message maneja la historia automáticamente
-        response = chat.send_message(prompt_text)
-        
+        )
         return response.text
     
     except Exception as e:
-        # Aquí se capturan errores como cuota excedida o archivo no encontrado
         print(f"Error AI: {e}")
         return "Ocurrió un error al procesar tu solicitud. Intenta de nuevo en unos segundos."
 
@@ -119,8 +124,7 @@ def send_reply(chat_id, text):
         print(f"Error enviando a Telegram: {e}")
 
 def background_ai_task(chat_id, message_text):
-    # Pasamos el chat_id para que generate_ai_response sepa qué sesión usar
-    response = generate_ai_response(chat_id, message_text)
+    response = generate_ai_response(message_text)
     send_reply(chat_id, response)
 
 @app.route('/webhook', methods=['POST'])
@@ -132,9 +136,7 @@ def receive_update():
             text = update_data['message'].get('text')
             
             if text:
-                # La lógica de IA ahora se corre en un hilo, incluyendo la gestión de sesión
-                ai_thread = threading.Thread(target=background_ai_task, args=(chat_id, text))
-                ai_thread.start()
+                threading.Thread(target=background_ai_task, args=(chat_id, text)).start()
                 
         return jsonify(success=True), 200
     except Exception:
