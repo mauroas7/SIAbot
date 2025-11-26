@@ -4,8 +4,8 @@ import requests
 import threading
 from flask import Flask, request, jsonify
 # Importamos directamente de 'google' la librería y los types
-from google import genai 
-from google.genai import types 
+import google.generativeai as genai 
+from google.generativeai import types
 
 # --- CONFIGURACIÓN DE ACCESO ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
