@@ -90,7 +90,7 @@ print("--- SISTEMA DE AUTO-CARGA INICIADO ---")
 upload_and_configure_gemini()
 # -----------------------------
 
-# --- FUNCIÓN PRINCIPAL DE RESPUESTA CON MEMORIA Y RAG ---
+# --- FUNCIÓN PRINCIPAL DE RESPUESTA CON MEMORIA Y RAG (CORREGIDA) ---
 def generate_ai_response(chat_id, prompt_text):
     """Genera respuesta usando el modelo, manteniendo el estado de la conversación."""
     global model, global_file_handles, chat_sessions
@@ -103,29 +103,29 @@ def generate_ai_response(chat_id, prompt_text):
         if chat_id not in chat_sessions:
             print(f"💬 Creando nueva sesión de chat para: {chat_id}")
             
-            initial_history = []
-            if global_file_handles:
-                # Pasamos la instrucción del sistema y los archivos RAG en el primer turno del usuario
-                user_parts = global_file_handles + [
-                    types.Part.from_text("Actúa bajo la siguiente instrucción: " + SYSTEM_INSTRUCTION)
-                ]
-                initial_history.append(types.Content(
-                    role='user', 
-                    parts=user_parts
-                ))
-                # El modelo responde 'Entendido' para inicializar el historial y el contexto.
-                initial_history.append(types.Content(
-                    role='model', 
-                    parts=[types.Part.from_text('Entendido. Soy el Asistente de Estudio de Sistemas Inteligentes. Estoy listo para tus preguntas.')]
-                ))
+            # --- Configuración del historial para el primer mensaje ---
+            # 1. Creamos el contenido inicial del usuario: Archivos + Instrucción del sistema
             
+            # Convertimos las referencias de archivo en objetos Part
+            file_parts = [types.Part.from_file(file_handle) for file_handle in global_file_handles]
+            
+            # Contenido que inicia el chat (Files + System Instruction)
+            initial_content = file_parts + [
+                types.Part.from_text(f"Instrucción inicial: {SYSTEM_INSTRUCTION}")
+            ]
+
+            # Creamos la sesión de chat
             chat_sessions[chat_id] = model.start_chat(
-                history=initial_history 
+                # El historial se inicializa con el primer mensaje que establece el contexto
+                history=[
+                    types.Content(role='user', parts=initial_content),
+                    types.Content(role='model', parts=[types.Part.from_text('Entendido. Soy tu Asistente de Estudio. Estoy listo para tus preguntas.')])
+                ]
             )
 
         chat = chat_sessions[chat_id]
         
-        # 2. Enviar Mensaje y recibir respuesta
+        # 2. Enviar Nuevo Mensaje y recibir respuesta
         # send_message gestiona la historia automáticamente
         response = chat.send_message(prompt_text)
         
@@ -134,6 +134,7 @@ def generate_ai_response(chat_id, prompt_text):
     except Exception as e:
         print(f"Error AI: {e}")
         return "Ocurrió un error al procesar tu solicitud. Intenta de nuevo en unos segundos."
+# ----------------------------------------------------------------------
 
 def send_reply(chat_id, text):
     """Envía mensaje a Telegram (con protección anti-errores 400)."""
