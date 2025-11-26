@@ -47,16 +47,28 @@ def upload_and_configure_gemini():
         
         pdf_files = glob.glob("documentos/*.pdf")
         
+        # 🟢 DEBUG 1: Muestra los archivos encontrados en la carpeta local
+        print(f"DEBUG: Archivos PDF encontrados localmente: {pdf_files}")
+        
+        if not pdf_files:
+            print("⚠️ ADVERTENCIA: No se encontraron PDFs en la carpeta 'documentos'.")
+        
         print(f"📂 Iniciando carga de {len(pdf_files)} documentos...")
         
         for pdf_path in pdf_files:
-            print(f"   Subiendo: {pdf_path}...")
-            # Subimos el archivo a la nube (Temporal por 48hs, pero se renueva en cada deploy)
-            file_ref = genai.upload_file(pdf_path, mime_type="application/pdf")
-            uploaded_files.append(file_ref)
+            try:
+                # Subimos el archivo a la nube
+                file_ref = genai.upload_file(pdf_path, mime_type="application/pdf")
+                uploaded_files.append(file_ref)
+                # 🟢 DEBUG 2: Muestra el ID de referencia de cada archivo subido
+                print(f"   ✅ Carga exitosa: {pdf_path} -> {file_ref.name}")
+            except Exception as e:
+                # 🔴 DEBUG 3: Captura errores individuales de subida
+                print(f"   ❌ ERROR CRÍTICO al subir {pdf_path}: {e}")
             
-        print(f"✅ ¡Éxito! {len(uploaded_files)} archivos cargados.")
-
+        # 🟢 DEBUG 4: Muestra el total final de archivos con éxito
+        print(f"DEBUG: Total de referencias de archivo subidas con éxito: {len(uploaded_files)}")
+        
         # Configuramos el modelo que usará la instrucción del sistema
         model = genai.GenerativeModel(
             model_name='gemini-2.5-flash',
