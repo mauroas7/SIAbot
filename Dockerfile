@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 COPY bot.py .
-COPY documentos /app/documentos
+COPY /app/documentos
 
 RUN pip install --no-cache-dir -r requirements.txt
 
