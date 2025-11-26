@@ -3,15 +3,17 @@ import glob
 import requests
 import threading
 from flask import Flask, request, jsonify
-# Importamos directamente de 'google' la librería y los types
+# --- IMPORTACIÓN ROBUSTA (Soluciona el ImportError) ---
 import google.generativeai as genai 
 from google.generativeai import types
+# ----------------------------------------------------
 
 # --- CONFIGURACIÓN DE ACCESO ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 
 if not TOKEN:
+    # Esto detiene el servidor si falta la variable de entorno
     raise ValueError("TELEGRAM_TOKEN no está configurado.")
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}/"
@@ -33,9 +35,12 @@ global_file_handles = []
 chat_sessions = {} # Diccionario para almacenar las sesiones de chat de cada usuario
 # ------------------------------
 
-# --- FUNCIÓN DE AUTO-CARGA DE ARCHIVOS (CORRECCIÓN DE ERROR) ---
+# --- FUNCIÓN DE AUTO-CARGA DE ARCHIVOS (ESTABILIZADA) ---
 def upload_and_configure_gemini():
-    """Sube los PDFs de la carpeta 'documentos' a Gemini al iniciar, usando el método robusto."""
+    """
+    Sube los PDFs de la carpeta 'documentos' a Gemini al iniciar. 
+    NO USA genai.Client() para evitar el error.
+    """
     global model, global_file_handles
     
     if not GEMINI_API_KEY:
@@ -43,14 +48,13 @@ def upload_and_configure_gemini():
         return
 
     try:
+        # Configuración estándar para toda la aplicación
         genai.configure(api_key=GEMINI_API_KEY)
-        # Usamos el cliente explícito, el método más robusto para subir archivos
-        client = genai.Client(api_key=GEMINI_API_KEY) 
-        uploaded_files = []
         
+        uploaded_files = []
+        # El Dockerfile ya asegura que la carpeta 'documentos' esté aquí.
         pdf_files = glob.glob("documentos/*.pdf")
         
-        # 🟢 DEBUG 1: Muestra los archivos encontrados en la carpeta local
         print(f"DEBUG: Archivos PDF encontrados localmente: {pdf_files}")
         
         if not pdf_files:
@@ -60,24 +64,24 @@ def upload_and_configure_gemini():
         
         for pdf_path in pdf_files:
             try:
-                # Corregido: Usamos client.files.upload para asegurar el manejo correcto del objeto de referencia
-                file_ref = client.files.upload(file=pdf_path, mime_type="application/pdf")
+                # 🟢 Subida de archivo usando la función directa, la forma correcta:
+                file_ref = genai.upload_file(file=pdf_path, mime_type="application/pdf")
                 uploaded_files.append(file_ref)
-                # 🟢 DEBUG 2: Muestra el ID de referencia de cada archivo subido
                 print(f"   ✅ Carga exitosa: {pdf_path} -> {file_ref.name}")
             except Exception as e:
-                # 🔴 DEBUG 3: Captura errores individuales de subida
                 print(f"   ❌ ERROR CRÍTICO al subir {pdf_path}: {e}")
             
-        # 🟢 DEBUG 4: Muestra el total final de archivos con éxito
         print(f"DEBUG: Total de referencias de archivo subidas con éxito: {len(uploaded_files)}")
 
         # Configuramos el modelo que usaremos para el chat
-        model = client.models.get(model='gemini-2.5-flash')
+        model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash',
+        )
         
         global_file_handles = uploaded_files
 
     except Exception as e:
+        # Aquí saltará si el API Key es inválido o hay otro error de configuración
         print(f"❌ FALLO CRÍTICO AL SUBIR ARCHIVOS O CONFIGURAR MODELO: {e}")
 
 # --- INICIALIZACIÓN GLOBAL ---
@@ -92,7 +96,7 @@ def generate_ai_response(chat_id, prompt_text):
     global model, global_file_handles, chat_sessions
     
     if not model:
-        return "El modelo de IA no está configurado."
+        return "El modelo de IA no está configurado. Revisa el log de errores."
 
     try:
         # 1. Recuperar o Crear Sesión de Chat
@@ -102,7 +106,6 @@ def generate_ai_response(chat_id, prompt_text):
             initial_history = []
             if global_file_handles:
                 # Pasamos la instrucción del sistema y los archivos RAG en el primer turno del usuario
-                # Esto soluciona la necesidad de 'config' y asegura que el contexto RAG se inicie con la memoria.
                 user_parts = global_file_handles + [
                     types.Part.from_text("Actúa bajo la siguiente instrucción: " + SYSTEM_INSTRUCTION)
                 ]
