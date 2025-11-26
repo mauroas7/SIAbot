@@ -87,10 +87,24 @@ def generate_ai_response(chat_id, prompt_text):
         if chat_id not in chat_sessions:
             print(f"💬 Creando nueva sesión de chat para: {chat_id}")
             
-            # Los archivos RAG se pasan al iniciar el chat, para que el modelo los use como contexto.
+            # **AQUÍ ESTÁ EL CAMBIO DE SINTAXIS:**
+            # Pasamos los archivos RAG como el primer contenido en el historial.
+            initial_history = []
+            if global_file_handles:
+                # El primer turno debe ser el contexto (los archivos)
+                initial_history.append(genai.types.Content(
+                    role='user', 
+                    parts=global_file_handles
+                ))
+                # La respuesta inicial del modelo debe estar vacía para no arruinar el chat
+                initial_history.append(genai.types.Content(
+                    role='model', 
+                    parts=[genai.types.Part.from_text('Entendido. Estoy listo para las preguntas.')]
+                ))
+            
             chat_sessions[chat_id] = model.start_chat(
-                history=[], 
-                config={"context": global_file_handles} 
+                history=initial_history 
+                # Ya no se usa: config={"context": global_file_handles}
             )
 
         chat = chat_sessions[chat_id]
@@ -102,7 +116,7 @@ def generate_ai_response(chat_id, prompt_text):
         return response.text
     
     except Exception as e:
-        # Aquí se capturan errores como cuota excedida o archivo no encontrado
+        # ... (el resto del bloque except sigue igual)
         print(f"Error AI: {e}")
         return "Ocurrió un error al procesar tu solicitud. Intenta de nuevo en unos segundos."
 
